@@ -219,7 +219,7 @@ class Mbank(EmailParser):
                 tmp = ''.join(tmp[0:tmp.index('<')].split(':')[1]).strip('.').strip()
                 message_balance.date = self._get_message_date(message)
                 message_balance.balance = float(''.join(tmp.split(' ')[0]).replace(',', '.'))
-                message_balance.currency = ''.join(tmp[-1])
+                message_balance.currency = ''.join(tmp.split(' ')[-1])
                 if balance.balance is None or balance.date < message_balance.date:
                     balance = message_balance
         return [balance]
