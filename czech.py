@@ -44,7 +44,7 @@ class Csob:
                 payment = Payment()
                 payment.date = date
                 if 'klientko' in body:
-                    body = ''.join(body.split('\n\n')[1:])
+                    body = '\n'.join(body.split('\n\n')[1:])
                 detail = False
                 account_num_regex = re.compile(r'[^\d]+((\d+\-)?\d+/\d+)$')
                 sender_message = False
