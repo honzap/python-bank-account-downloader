@@ -190,3 +190,36 @@ class Equabank(EmailParser):
 
     def _extract_line_part(self, parts, start, end, delimiter):
         return delimiter.join(parts[start:end if end is not None else len(parts)]).strip()
+
+
+class Mbank(EmailParser):
+
+    def __init__(self, downloader):
+        self.downloader = downloader
+
+    def has_balance(self):
+        return True
+
+    def parse(self):
+        balance = Balance()
+        messages = self.downloader.download('UNSEEN HEADER From "kontakt@mbank.cz"')
+        for message in messages:
+            if 'Email Push' in self._get_subject(message):
+                message_balance = Balance()
+                if not message.is_multipart():
+                    continue
+                body = None
+                for part in message.walk():
+                    if part.get_content_type() == 'text/html' and 'Vlast.prostr' in part.get_payload():
+                        body = part.get_payload()
+                        break
+                if not body:
+                    continue
+                tmp = body[body.rindex('Vlast.prostr'):]
+                tmp = ''.join(tmp[0:tmp.index('<')].split(':')[1]).strip('.').strip()
+                message_balance.date = self._get_message_date(message)
+                message_balance.balance = float(''.join(tmp.split(' ')[0]).replace(',', '.'))
+                message_balance.currency = ''.join(tmp[-1])
+                if balance.balance is None or balance.date < message_balance.date:
+                    balance = message_balance
+        return [balance]
