@@ -7,10 +7,10 @@ from email.header import decode_header
 class Parser:
 
     def has_payments(self):
-        raise False
+        return False
 
     def has_balance(self):
-        raise False
+        return False
 
     def parse(self):
         raise NotImplementedError('Should be implemented!')
