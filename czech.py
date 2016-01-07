@@ -168,16 +168,15 @@ class Equabank(EmailParser):
         return True
 
     def parse(self):
-        balance = Balance()
+        balances = {}
         messages = self.downloader.download('UNSEEN HEADER From "info@equabank.cz"')
         for message in messages:
             message_balance = Balance()
             body = self._get_message_content(message)
             for line in body.split('\n'):
                 parts = line.split(' ')
-                if 'částka ve výši' in line:
+                if 'stka' in line:
                     message_balance.account = self._extract_line_part(parts, 3, 4, '')
-                    print(self._extract_line_part(parts, 3, 4, ''))
                 elif 'dne' in line:
                     message_balance.balance = float(self._extract_line_part(parts, -2, -1, '').replace(',', '.'))
                     message_balance.currency = self._extract_line_part(parts, -1, None, '').strip('.')
@@ -185,9 +184,9 @@ class Equabank(EmailParser):
                         message_balance.date = datetime.datetime.strptime(self._extract_line_part(parts, 3, 5, ' '), '%d.%m.%Y %H:%M')
                     except ValueError:
                         message_balance.date = self._get_message_date(message)
-            if not balance.date or balance.date < message_balance.date:
-                balance = message_balance
-        return balance if balance.balance is not None else None
+            if (message_balance.account not in balances.keys() or balances[message_balance.account].date < message_balance.date):
+                balances[message_balance.account] = message_balance
+        return balances.values()
 
     def _extract_line_part(self, parts, start, end, delimiter):
         return delimiter.join(parts[start:end if end is not None else len(parts)]).strip()
