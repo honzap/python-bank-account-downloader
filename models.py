@@ -23,3 +23,13 @@ class Payment:
 
     def __str__(self):
         return '%s %s' % (self.price, self.account)
+
+
+class Balance:
+    account = None
+    balance = None
+    date = None
+    currency = None
+
+    def __str__(self):
+        return '%s: %s %s' % (self.date, self.balance, self.currency)

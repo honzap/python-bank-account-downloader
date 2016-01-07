@@ -1,14 +1,12 @@
 import datetime
-import email
-from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
-import base64
 import re
-from account_downloader.models import Payment, PaymentType
+from account_downloader.models import Payment, PaymentType, Balance
+from account_downloader.parser import EmailParser
 
 
-class Csob:
+class Csob(EmailParser):
     TYPE_CARD = 'transakce platební kartou'
     TYPE_TRANSACTION = 'transakce TPS'
     TYPE_MOBILE = 'služby mobilního operátora'
@@ -26,20 +24,16 @@ class Csob:
     def __init__(self, downloader):
         self.downloader = downloader
 
+    def has_payments(self):
+        return True
+
     def parse(self):
         messages = self.downloader.download('UNSEEN HEADER Subject "Info 24"')
         for message in messages:
-            date = parsedate_to_datetime(message['Date'])
-            sbj_bytes, encoding = decode_header(message['Subject'])[0]
-            subject = sbj_bytes.decode(encoding)
+            date = self._get_message_date(message)
+            subject = self._get_subject(message)
             if 'Avízo' in subject:
-                if message.is_multipart():
-                    for part in message.walk():
-                        if part.get_content_type() == 'text/plain':
-                            message = part
-                            break
-                charset = message.get_content_charset()
-                body = base64.b64decode(message.get_payload().encode(charset)).decode(charset)
+                body = self._get_message_content(message, True)
                 body = body[0:body.index(':::::::::::::')]
                 payment = Payment()
                 payment.date = date
@@ -91,8 +85,8 @@ class Csob:
                     payment.transaction_type = dict(self.TYPES_MAP).get(transaction_type, PaymentType.TYPE_UNDEFINED)
 
 
-class Raiffeisenbank:
-    '''
+class Raiffeisenbank(EmailParser):
+    """
     Format of defined e-mails:
     - Incoming:
         PRICHOZI
@@ -114,7 +108,7 @@ class Raiffeisenbank:
         VS: %CVS%
         SS: %TSS%
         Zprava: %CI%
-    '''
+    """
 
     TYPE_OUTGOING = 1
     TYPE_INCOMING = 2
@@ -122,11 +116,13 @@ class Raiffeisenbank:
     def __init__(self, downloader):
         self.downloader = downloader
 
+    def has_payments(self):
+        return True
+
     def parse(self):
         messages = self.downloader.download('UNSEEN HEADER From "info@rb.cz"')
         for message in messages:
-            charset = message.get_content_charset()
-            body = message.get_payload().encode(charset).decode(charset)
+            body = self._get_message_content(message)
             payment = Payment()
             payment_type = 0
             for line in body.split('\n'):
@@ -154,10 +150,44 @@ class Raiffeisenbank:
                     try:
                         payment.date = datetime.datetime.strptime(self._get_line_data(line), '%d.%m.%Y %H:%M')
                     except ValueError as e:
-                        payment.date = parsedate_to_datetime(message['Date'])
+                        payment.date = self._get_message_date(message)
                 elif line.startswith('Zprava:'):
                     payment.message = self._get_line_data(line)
             yield payment
 
     def _get_line_data(self, line):
         return ' '.join(line.split(':')[1:]).strip()
+
+
+class Equabank(EmailParser):
+
+    def __init__(self, downloader):
+        self.downloader = downloader
+
+    def has_balance(self):
+        return True
+
+    def parse(self):
+        balance = Balance()
+        messages = self.downloader.download('UNSEEN HEADER From "info@equabank.cz"')
+        for message in messages:
+            message_balance = Balance()
+            body = self._get_message_content(message)
+            for line in body.split('\n'):
+                parts = line.split(' ')
+                if 'částka ve výši' in line:
+                    message_balance.account = self._extract_line_part(parts, 3, 4, '')
+                    print(self._extract_line_part(parts, 3, 4, ''))
+                elif 'dne' in line:
+                    message_balance.balance = float(self._extract_line_part(parts, -2, -1, '').replace(',', '.'))
+                    message_balance.currency = self._extract_line_part(parts, -1, None, '').strip('.')
+                    try:
+                        message_balance.date = datetime.datetime.strptime(self._extract_line_part(parts, 3, 5, ' '), '%d.%m.%Y %H:%M')
+                    except ValueError:
+                        message_balance.date = self._get_message_date(message)
+            if not balance.date or balance.date < message_balance.date:
+                balance = message_balance
+        return balance if balance.balance is not None else None
+
+    def _extract_line_part(self, parts, start, end, delimiter):
+        return delimiter.join(parts[start:end if end is not None else len(parts)]).strip()
