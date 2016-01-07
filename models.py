@@ -19,6 +19,7 @@ class Payment:
     message = None
     place = None
     date = None
+    account_from = None
 
     def __str__(self):
-        return '%.2f %s' % (self.price, self.account)
+        return '%s %s' % (self.price, self.account)

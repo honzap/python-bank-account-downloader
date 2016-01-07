@@ -90,9 +90,74 @@ class Csob:
                         transaction_type = self.TYPE_SAVING
                     payment.transaction_type = dict(self.TYPES_MAP).get(transaction_type, PaymentType.TYPE_UNDEFINED)
 
-    def get_message_date(self, date):
-        date_tuple = email.utils.parsedate_tz(date)
-        if date_tuple:
-            return datetime.datetime.fromtimestamp(email.utils.mktime_tz(date_tuple))
-        return datetime.datetime.now()
 
+class Raiffeisenbank:
+    '''
+    Format of defined e-mails:
+    - Incoming:
+        PRICHOZI
+        Z: %DN%
+        Na: %CN%
+        Castka: %RA% %CC%
+        Dne: %RD%
+        KS: %TCS%
+        VS: %CVS%
+        SS: %TSS%
+        Zprava: %CI%
+    - Outgoing:
+        ODCHOZI
+        Z: %DN%
+        Na: %CN%
+        Castka: %RA% %CC%
+        Dne: %RD%
+        KS: %TCS%
+        VS: %CVS%
+        SS: %TSS%
+        Zprava: %CI%
+    '''
+
+    TYPE_OUTGOING = 1
+    TYPE_INCOMING = 2
+
+    def __init__(self, downloader):
+        self.downloader = downloader
+
+    def parse(self):
+        messages = self.downloader.download('UNSEEN HEADER From "info@rb.cz"')
+        for message in messages:
+            charset = message.get_content_charset()
+            body = message.get_payload().encode(charset).decode(charset)
+            payment = Payment()
+            payment_type = 0
+            for line in body.split('\n'):
+                if 'ODCHOZI' in line:
+                    payment.transaction_type = PaymentType.TYPE_TRANSACTION
+                    payment_type = self.TYPE_OUTGOING
+                elif 'PRICHOZI' in line:
+                    payment.transaction_type = PaymentType.TYPE_TRANSACTION
+                    payment_type = self.TYPE_INCOMING
+                elif (line.startswith('Z:') and payment_type == self.TYPE_INCOMING) or (line.startswith('Na') and payment_type == self.TYPE_OUTGOING):
+                    payment.account = '/'.join(self._get_line_data(line).split('/')[0:2])
+                elif (line.startswith('Z:') and payment_type == self.TYPE_OUTGOING) or (line.startswith('Na') and payment_type == self.TYPE_INCOMING):
+                    payment.account_from = '/'.join(self._get_line_data(line).split('/')[0:2])
+                elif line.startswith('Castka:'):
+                    payment.price = float(''.join(self._get_line_data(line).split(' ')[0:-1]).replace(',', '.'))
+                    if payment_type == self.TYPE_OUTGOING:
+                        payment.price = -1 * payment.price
+                elif line.startswith('KS:'):
+                    payment.ks = self._get_line_data(line)
+                elif line.startswith('VS:'):
+                    payment.vs = self._get_line_data(line)
+                elif line.startswith('SS:'):
+                    payment.ss = self._get_line_data(line)
+                elif line.startswith('Dne:'):
+                    try:
+                        payment.date = datetime.datetime.strptime(self._get_line_data(line), '%d.%m.%Y %H:%M')
+                    except ValueError as e:
+                        payment.date = parsedate_to_datetime(message['Date'])
+                elif line.startswith('Zprava:'):
+                    payment.message = self._get_line_data(line)
+            yield payment
+
+    def _get_line_data(self, line):
+        return ' '.join(line.split(':')[1:]).strip()
