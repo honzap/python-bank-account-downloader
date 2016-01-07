@@ -86,7 +86,7 @@ class Csob:
                         payment.detail_from = " ".join(line.split(' ')[1:])
                     elif line.startswith('Místo'):
                         payment.place = " ".join(line.split(' ')[1:])
-                    elif 'úroku' in line:
+                    elif 'úrok' in line:
                         transaction_type = self.TYPE_SAVING
                     payment.transaction_type = dict(self.TYPES_MAP).get(transaction_type, PaymentType.TYPE_UNDEFINED)
 
