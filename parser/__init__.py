@@ -1,9 +1,8 @@
-from email.utils import parsedate_to_datetime
 from _csv import QUOTE_MINIMAL
-
-import base64
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
 
+UCB_BANK_CODE = '2700'
 
 class tsv:
     delimiter = ';'
@@ -40,17 +39,17 @@ class EmailParser(Parser):
     def _get_message_date(self, message):
         return parsedate_to_datetime(message['Date'])
 
-    def _get_message_content(self, message, use_base64=False):
+    def _get_message_content(self, message):
         message = self._get_message_part(message)
-        if use_base64:
-            charset = message.get_content_charset()
-            return base64.b64decode(message.get_payload().encode(charset)).decode(charset)
-        else:
-            return message.get_payload()
+        charset = message.get_content_charset()
+        return message.get_payload(decode=True).decode(charset)
 
     def _get_subject(self, message):
         sbj_bytes, encoding = decode_header(message['Subject'])[0]
-        return sbj_bytes.decode(encoding)
+        return sbj_bytes.decode(encoding) if type(sbj_bytes) == bytes else sbj_bytes
+
+    def _get_line_data(self, line):
+        return ' '.join(line.split(':')[1:]).strip()
 
 
 class CsvParser(Parser):

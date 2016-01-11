@@ -2,7 +2,7 @@ import datetime
 
 import re
 from czech_banks.models import Payment, PaymentType, Balance
-from czech_banks.parser import EmailParser
+from czech_banks.parser import EmailParser, UCB_BANK_CODE
 
 
 class Csob(EmailParser):
@@ -28,11 +28,11 @@ class Csob(EmailParser):
 
     def parse(self):
         messages = self.downloader.download('UNSEEN HEADER Subject "Info 24"')
-        for message in messages:
+        for num, message in messages:
             date = self._get_message_date(message)
             subject = self._get_subject(message)
             if 'Avízo' in subject:
-                body = self._get_message_content(message, True)
+                body = self._get_message_content(message)
                 body = body[0:body.index(':::::::::::::')]
                 payment = Payment()
                 payment.date = date
@@ -120,7 +120,7 @@ class Raiffeisenbank(EmailParser):
 
     def parse(self):
         messages = self.downloader.download('UNSEEN HEADER From "info@rb.cz"')
-        for message in messages:
+        for num, message in messages:
             body = self._get_message_content(message)
             payment = Payment()
             payment_type = 0
@@ -131,9 +131,11 @@ class Raiffeisenbank(EmailParser):
                 elif 'PRICHOZI' in line:
                     payment.transaction_type = PaymentType.TYPE_TRANSACTION
                     payment_type = self.TYPE_INCOMING
-                elif (line.startswith('Z:') and payment_type == self.TYPE_INCOMING) or (line.startswith('Na') and payment_type == self.TYPE_OUTGOING):
+                elif (line.startswith('Z:') and payment_type == self.TYPE_INCOMING) or (
+                            line.startswith('Na') and payment_type == self.TYPE_OUTGOING):
                     payment.account = '/'.join(self._get_line_data(line).split('/')[0:2])
-                elif (line.startswith('Z:') and payment_type == self.TYPE_OUTGOING) or (line.startswith('Na') and payment_type == self.TYPE_INCOMING):
+                elif (line.startswith('Z:') and payment_type == self.TYPE_OUTGOING) or (
+                            line.startswith('Na') and payment_type == self.TYPE_INCOMING):
                     payment.account_from = '/'.join(self._get_line_data(line).split('/')[0:2])
                 elif line.startswith('Castka:'):
                     payment.price = float(''.join(self._get_line_data(line).split(' ')[0:-1]).replace(',', '.'))
@@ -154,12 +156,8 @@ class Raiffeisenbank(EmailParser):
                     payment.message = self._get_line_data(line)
             yield payment
 
-    def _get_line_data(self, line):
-        return ' '.join(line.split(':')[1:]).strip()
 
-
-class Equabank(EmailParser):
-
+class EquabankBalance(EmailParser):
     def __init__(self, downloader):
         self.downloader = downloader
 
@@ -169,7 +167,7 @@ class Equabank(EmailParser):
     def parse(self):
         balances = {}
         messages = self.downloader.download('UNSEEN HEADER From "info@equabank.cz"')
-        for message in messages:
+        for num, message in messages:
             message_balance = Balance()
             body = self._get_message_content(message)
             for line in body.split('\n'):
@@ -180,10 +178,12 @@ class Equabank(EmailParser):
                     message_balance.balance = float(self._extract_line_part(parts, -2, -1, '').replace(',', '.'))
                     message_balance.currency = self._extract_line_part(parts, -1, None, '').strip('.')
                     try:
-                        message_balance.date = datetime.datetime.strptime(self._extract_line_part(parts, 3, 5, ' '), '%d.%m.%Y %H:%M')
+                        message_balance.date = datetime.datetime.strptime(self._extract_line_part(parts, 3, 5, ' '),
+                                                                          '%d.%m.%Y %H:%M')
                     except ValueError:
                         message_balance.date = self._get_message_date(message)
-            if (message_balance.account not in balances.keys() or balances[message_balance.account].date < message_balance.date):
+            if (message_balance.account not in balances.keys() or balances[
+                message_balance.account].date < message_balance.date):
                 balances[message_balance.account] = message_balance
         return balances.values()
 
@@ -191,8 +191,7 @@ class Equabank(EmailParser):
         return delimiter.join(parts[start:end if end is not None else len(parts)]).strip()
 
 
-class Mbank(EmailParser):
-
+class MbankBalance(EmailParser):
     def __init__(self, downloader):
         self.downloader = downloader
 
@@ -202,7 +201,7 @@ class Mbank(EmailParser):
     def parse(self):
         balance = Balance()
         messages = self.downloader.download('UNSEEN HEADER From "kontakt@mbank.cz"')
-        for message in messages:
+        for num, message in messages:
             if 'Email Push' in self._get_subject(message):
                 message_balance = Balance()
                 if not message.is_multipart():
@@ -222,3 +221,91 @@ class Mbank(EmailParser):
                 if balance.balance is None or balance.date < message_balance.date:
                     balance = message_balance
         return [balance]
+
+
+class Unicredit(EmailParser):
+
+    def __init__(self, downloader):
+        self.downloader = downloader
+
+    def has_payments(self):
+        return True
+
+    def parse(self):
+        messages = self.downloader.download('UNSEEN HEADER From "unicreditbank@unicreditgroup.cz"')
+        for num, message in messages:
+            if 'o zůstatku' not in self._get_subject(message):
+                self.downloader.set_unseen(num)
+
+            body = self._get_message_content(message)
+            payment = Payment()
+            for line in body.split('\n'):
+                if 'Vás informuje' in line:
+                    payment.account_from = ''.join(''.join(line.split(':')[1]).strip().split(' ')[0]) + \
+                                           '/' + UCB_BANK_CODE
+                elif line.startswith('Číslo účtu protistrany:'):
+                    payment.account = self._get_line_data(line).lstrip('0/') or None
+                elif line.startswith('Název účtu protistrany:'):
+                    payment.detail_from = self._get_line_data(line) or None
+                elif line.startswith('Částka:'):
+                    payment.price = float(''.join(self._get_line_data(line).split(' ')[0])
+                                          .replace('.', '')
+                                          .replace(',', '.'))
+                elif line.startswith('Konstatní symbol:'):
+                    payment.ks = self._get_line_data(line) or None
+                elif line.startswith('Variabilní symbol:'):
+                    payment.vs = self._get_line_data(line) or None
+                elif line.startswith('Specifický symbol:'):
+                    payment.ss = self._get_line_data(line) or None
+                elif line.startswith('Datum:'):
+                    try:
+                        payment.date = datetime.datetime.strptime(self._get_line_data(line), '%d.%m.%Y %H:%M')
+                    except ValueError as e:
+                        payment.date = self._get_message_date(message)
+                elif line.startswith('Detaily transakce:'):
+                    line_content = self._get_line_data(line)
+                    details = line_content.split('                ')
+                    if len(details) == 5:
+                        payment.place = details[4].strip()
+                        payment.description = ' '.join([x.strip() for x in details[0:3]])
+                    elif len(details) > 0:
+                        payment.description = ' '.join(details) or None
+                    else:
+                        payment.message = line_content or None
+
+            yield payment
+
+
+class UnicreditBalance(EmailParser):
+    def __init__(self, downloader):
+        self.downloader = downloader
+
+    def has_balance(self):
+        return True
+
+    def parse(self):
+        balances = {}
+        messages = self.downloader.download('UNSEEN HEADER From "unicreditbank@unicreditgroup.cz"')
+        for num, message in messages:
+            if 'o zůstatku' not in self._get_subject(message):
+                self.downloader.set_unseen(num)
+            else:
+                msg_balance = Balance()
+                body = self._get_message_content(message)
+                for line in body.split('\n'):
+                    if 'Vás informuje' in line:
+                        msg_balance.account_from = ''.join(''.join(line.split(':')[1]).strip().split('/')[0]) + \
+                                               '/' + UCB_BANK_CODE
+                    if 'Disponibilní zůstatek' in line:
+                        tmp = self._get_line_data(line)
+                        msg_balance.balance = float(''.join(tmp.split(' ')[0]).replace('.', '').replace(',', '.'))
+                        msg_balance.currency = ''.join(tmp.split(' ')[-1])
+                    elif 'Datum:' in line:
+                        try:
+                            msg_balance.date = datetime.datetime.strptime(self._get_line_data(line), '%d.%m.%Y %H:%M')
+                        except ValueError as e:
+                            msg_balance.date = self._get_message_date(message)
+                if (msg_balance.account not in balances.keys() or
+                        balances[msg_balance.account].date < msg_balance.date):
+                    balances[msg_balance.account] = msg_balance
+        return balances.values()

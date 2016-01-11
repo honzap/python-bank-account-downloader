@@ -12,6 +12,9 @@ class DownloadingError(RuntimeError):
 
 
 class EmailDownloader(DownloaderBase):
+
+    _handle = None
+
     def __init__(self, server, port, account, password, ssl=True):
         self.server = server
         self.port = port
@@ -21,29 +24,28 @@ class EmailDownloader(DownloaderBase):
 
     def download(self, search_query='UNSEEN'):
         if self.ssl:
-            handle = imaplib.IMAP4_SSL(self.server, self.port)
+            self._handle = imaplib.IMAP4_SSL(self.server, self.port)
         else:
-            handle = imaplib.IMAP4(self.server, self.port)
+            self._handle = imaplib.IMAP4(self.server, self.port)
         try:
-            handle.login(self.account, self.password)
+            self._handle.login(self.account, self.password)
         except imaplib.IMAP4.error:
             raise DownloadingError("cannot login")
-        res, data = handle.select('INBOX')
+        res, data = self._handle.select('INBOX')
         if res == 'OK':
-            result = self.process_mailbox(handle, search_query)
-            handle.close()
-        handle.logout()
-        return result
-
-    def process_mailbox(self, handle, search_query):
-        rv, data = handle.search(None, search_query)
-        if rv != 'OK':
-            raise DownloadingError("cannot find message")
-        messages = []
-        for num in data[0].split():
-            rv, data = handle.fetch(num, '(RFC822)')
+            rv, data = self._handle.search(None, search_query)
             if rv != 'OK':
-                raise DownloadingError("cannot fetch message")
-            message = email.message_from_bytes(data[0][1])
-            messages.append(message)
-        return messages
+                raise DownloadingError("cannot find message")
+            for num in data[0].split():
+                rv, data = self._handle.fetch(num, '(RFC822)')
+                if rv != 'OK':
+                    raise DownloadingError("cannot fetch message")
+                message = email.message_from_bytes(data[0][1])
+                yield (num, message)
+            self._handle.close()
+        self._handle.logout()
+        self._handle = None
+
+    def set_unseen(self, num):
+        if self._handle:
+            self._handle.store(num, '-FLAGS', '\SEEN')

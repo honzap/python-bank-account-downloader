@@ -2,7 +2,7 @@ import csv
 import datetime
 
 from czech_banks.models import PaymentType, Payment
-from czech_banks.parser import CsvParser, tsv
+from czech_banks.parser import CsvParser, tsv, UCB_BANK_CODE
 
 
 class Equabank(CsvParser):
@@ -133,6 +133,7 @@ class Mbank(CsvParser):
 
 
 class Unicredit(CsvParser):
+
     TYPE_MAP = (
         ('KARETNÍ TRANSAKCE', PaymentType.TYPE_CARD),
         ('VÝBĚR Z BANKOMATU', PaymentType.TYPE_CARD),
@@ -168,7 +169,7 @@ class Unicredit(CsvParser):
                 payment.price = float(price.replace(',', '.'))
                 payment.date = datetime.datetime.strptime(date, '%Y-%m-%d')
                 payment.account = (account + '/' + bank_code).strip('/')
-                payment.account_from = acc + '/2700'
+                payment.account_from = acc + '/' + UCB_BANK_CODE
                 payment.detail_from = detail_from
                 payment.transaction_type = dict(self.TYPE_MAP).get(tr_type, PaymentType.TYPE_UNDEFINED)
                 if payment.transaction_type == PaymentType.TYPE_UNDEFINED:
