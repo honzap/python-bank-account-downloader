@@ -162,12 +162,12 @@ class Unicredit(CsvParser):
                     continue
                 if len(row) < 24:
                     continue
-                acc, price, date, date2, bank_code, bank_name, bank_name2, account, detail_from, add1, add2, add3, \
+                acc, price, currency, date, date2, bank_code, bank_name, bank_name2, account, detail_from, add1, add2, add3, \
                     tr_type, detail1, detail2, detail3, detail4, detail5, ks, vs, ss, pay_title, ref_num = row[0:24]
                 payment = Payment()
-                payment.price = float(price) / 1000
+                payment.price = float(price.replace(',', '.'))
                 payment.date = datetime.datetime.strptime(date, '%Y-%m-%d')
-                payment.account = account + '/' + bank_code
+                payment.account = (account + '/' + bank_code).strip('/')
                 payment.account_from = acc + '/2700'
                 payment.detail_from = detail_from
                 payment.transaction_type = dict(self.TYPE_MAP).get(tr_type, PaymentType.TYPE_UNDEFINED)
@@ -176,7 +176,9 @@ class Unicredit(CsvParser):
                         payment.transaction_type = PaymentType.TYPE_FEES
                     else:
                         payment.transaction_type = PaymentType.TYPE_TRANSACTION
-                        payment.description = tr_type
+                        payment.message = tr_type
+                if payment.transaction_type == PaymentType.TYPE_CARD:
+                    payment.place = detail5
                 payment.description = ('%s %s %s' % (detail1, detail2, detail3)).strip()
                 payment.vs = vs
                 payment.ks = ks
