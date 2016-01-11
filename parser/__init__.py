@@ -1,7 +1,18 @@
 from email.utils import parsedate_to_datetime
+from _csv import QUOTE_MINIMAL
 
 import base64
 from email.header import decode_header
+
+
+class tsv:
+    delimiter = ';'
+    quotechar = '"'
+    escapechar = None
+    doublequote = False
+    skipinitialspace = False
+    lineterminator = '\r\n'
+    quoting = QUOTE_MINIMAL
 
 
 class Parser:
@@ -40,3 +51,9 @@ class EmailParser(Parser):
     def _get_subject(self, message):
         sbj_bytes, encoding = decode_header(message['Subject'])[0]
         return sbj_bytes.decode(encoding)
+
+
+class CsvParser(Parser):
+
+    def has_payments(self):
+        return True

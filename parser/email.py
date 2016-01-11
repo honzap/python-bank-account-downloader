@@ -1,9 +1,8 @@
 import datetime
-from email.utils import parsedate_to_datetime
 
 import re
-from account_downloader.models import Payment, PaymentType, Balance
-from account_downloader.parser import EmailParser
+from czech_banks.models import Payment, PaymentType, Balance
+from czech_banks.parser import EmailParser
 
 
 class Csob(EmailParser):
