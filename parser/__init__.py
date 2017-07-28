@@ -41,6 +41,8 @@ class EmailParser(Parser):
 
     def _get_message_content(self, message):
         message = self._get_message_part(message)
+        if not message:
+            return ''
         charset = message.get_content_charset()
         return message.get_payload(decode=True).decode(charset)
 
