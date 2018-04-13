@@ -7,16 +7,20 @@ from czech_banks.parser import EmailParser, UCB_BANK_CODE
 
 class Csob(EmailParser):
     TYPE_CARD = 'transakce platební kartou'
-    TYPE_TRANSACTION = 'transakce TPS'
+    TYPE_TRANSACTION_TPS = 'transakce TPS'
+    TYPE_TRANSACTION_ZPS = 'zahraniční platba'
     TYPE_MOBILE = 'služby mobilního operátora'
     TYPE_FEES = 'poplatky'
+    TYPE_FEE_FX = 'poplatek za zahraniční platbu'
     TYPE_SAVING = 'úroky'
 
     TYPES_MAP = (
         (TYPE_CARD, PaymentType.TYPE_CARD),
-        (TYPE_TRANSACTION, PaymentType.TYPE_TRANSACTION),
+        (TYPE_TRANSACTION_TPS, PaymentType.TYPE_TRANSACTION),
+        (TYPE_TRANSACTION_ZPS, PaymentType.TYPE_TRANSACTION),
         (TYPE_MOBILE, PaymentType.TYPE_MOBILE),
         (TYPE_FEES, PaymentType.TYPE_FEES),
+        (TYPE_FEE_FX, PaymentType.TYPE_FEES),
         (TYPE_SAVING, PaymentType.TYPE_SAVING)
     )
 
@@ -41,29 +45,39 @@ class Csob(EmailParser):
                 detail = False
                 account_num_regex = re.compile(r'[^\d]+((\d+\-)?\d+/\d+)$')
                 sender_message = False
+                sender_name = False
                 transaction_type = ''
+                valid = True
                 for line in body.split('\n'):
                     account_number_matches = account_num_regex.match(line)
                     if 'Zůstatek na účtu' in line:
-                        yield payment
+                        if valid:
+                            yield payment
                         payment = Payment()
                         payment.date = date
                         detail = False
+                        valid = True
                         sender_message = False
+                        sender_name = False
                     elif line.startswith('dne'):
                         transaction_type = ' '.join(line.split(' ')[7:])[0:-1]
-                    elif line.startswith('částka'):
-                        payment.price = float(line.split(' ')[1].replace(',', '.'))
-                    elif account_number_matches:
-                        payment.account = account_number_matches.group(1)
-                    elif line.startswith('detail'):
-                        detail = True
-                    elif detail:
-                        if not line.startswith('splatnost') and not line.startswith('zpr') and 'SPO' not in line:
-                            payment.detail_from = line
-                        if 'SPO' in line:
-                            payment.description = line
                         detail = False
+                        sender_message = False
+                        sender_name = False
+                        payment = Payment()
+                        payment.date = date
+                    elif 'bude na' in line:
+                        valid = False
+                    elif line.lower().startswith('částka'):
+                        if ':' in line:
+                            line = "castka " + line.split(':')[1].strip()
+                        payment.price = float(line.split(' ')[1].replace(',', '.'))
+                    elif account_number_matches and 'účet' in line:
+                        payment.account = account_number_matches.group(1)
+                    elif line.lower().startswith('číslo účtu') and transaction_type != self.TYPE_FEE_FX:
+                        payment.account = line.split(':')[1].strip()
+                    elif line.startswith('detail') or line.startswith('Účel platby'):
+                        detail = True
                     elif line.startswith('KS'):
                         payment.ks = line.split(' ')[1]
                     elif line.startswith('VS'):
@@ -72,11 +86,24 @@ class Csob(EmailParser):
                         payment.ss = line.split(' ')[1]
                     elif line.startswith('zpráva pro'):
                         sender_message = True
+                    elif detail:
+                        if not line.startswith('splatnost') and not line.startswith('zpr') and 'SPO' not in line:
+                            payment.detail_from = line
+                        if 'SPO' in line:
+                            payment.description = line
+                        if transaction_type == self.TYPE_TRANSACTION_ZPS:
+                            payment.description = line
+                        detail = False
+                    elif sender_name:
+                        payment.detail_from = line
+                        sender_name = False
                     elif sender_message:
                         payment.message = line
                         sender_message = False
                     elif line.startswith('Od'):
                         payment.detail_from = " ".join(line.split(' ')[1:])
+                    elif line.startswith('Plátce'):
+                        sender_name = True
                     elif line.startswith('Místo'):
                         payment.place = " ".join(line.split(' ')[1:])
                     elif 'úrok' in line:
