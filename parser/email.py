@@ -37,7 +37,7 @@ class Csob(EmailParser):
             subject = self._get_subject(message)
             if 'Avízo' in subject:
                 body = self._get_message_content(message)
-                body = body[0:body.index(':::::::::::::')]
+                body = body[0:body.index('Vaše ČSOB')]
                 payment = Payment()
                 payment.date = date
                 if 'klientko' in body:
@@ -52,6 +52,7 @@ class Csob(EmailParser):
                     account_number_matches = account_num_regex.match(line)
                     if 'Zůstatek na účtu' in line:
                         if valid:
+                            print(payment)
                             yield payment
                         payment = Payment()
                         payment.date = date
